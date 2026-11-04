@@ -1,0 +1,15 @@
+{
+    "name": "librehome.juujbyg",
+    "description": "Control your home appliances from your phone: printer, dishwasher, washing machine, air fryer",
+    "architecture": "all",
+    "title": "LibreHome",
+    "hooks": {
+        "librehome": {
+            "apparmor": "librehome.apparmor",
+            "desktop": "librehome.desktop"
+        }
+    },
+    "version": "0.1.0",
+    "maintainer": "juujbyg <147175691+juujbyg@users.noreply.github.com>",
+    "framework": "$ENV{CLICK_FRAMEWORK}"
+}

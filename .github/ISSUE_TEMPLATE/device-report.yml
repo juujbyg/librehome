@@ -1,0 +1,37 @@
+name: Device report / request
+description: Tell us about an appliance that works, doesn't work, or isn't supported yet
+labels: [device]
+body:
+  - type: input
+    id: device
+    attributes:
+      label: Appliance
+      description: Brand, model and type (e.g. Bosch SMS6ECI dishwasher)
+    validations:
+      required: true
+  - type: dropdown
+    id: result
+    attributes:
+      label: What happens?
+      options:
+        - It works
+        - It's found but something doesn't work
+        - It's not found
+        - Not supported yet (request)
+    validations:
+      required: true
+  - type: input
+    id: connection
+    attributes:
+      label: How does it connect?
+      description: Wi-Fi, Ethernet, Matter, Thread, vendor app name, Home Assistant integration...
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: Output of `librehome devices` (remove anything private), what you tried, error messages
+  - type: input
+    id: platform
+    attributes:
+      label: LibreHome version and OS
+      placeholder: 0.1.0 on Ubuntu 24.04 / Windows 11 / Ubuntu Touch 24.04

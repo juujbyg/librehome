@@ -1,0 +1,36 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "librehome"
+dynamic = ["version"]
+description = "Jarvis-style hub for your home appliances: printer, dishwasher, washing machine, air fryer and more"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "GPL-2.0-or-later"}
+dependencies = []
+
+[project.scripts]
+librehome = "librehome.cli:main"
+
+[tool.setuptools.dynamic]
+version = {attr = "librehome.__version__"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+librehome = ["web/*"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP"]
+ignore = ["UP031"]  # the IPP code shared with LibrePrint keeps %-formatting
