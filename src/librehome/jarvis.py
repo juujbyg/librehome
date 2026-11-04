@@ -53,6 +53,11 @@ def handle(text: str, reg: Registry) -> str:
     overview = re.fullmatch(r"(status|what'?s running|how is everything|report|hello|hi|jarvis)", t)
     if overview or ("status" in t and not _find_device(t, devices)):
         return "\n".join(_describe(d) for d in devices if d["kind"] != "error") or "No devices connected."
+    if re.search(r"\bscan", t):
+        scanners = [d for d in devices if any(a["name"] == "scan" for a in d["actions"])]
+        if not scanners:
+            raise ActionError("no scanner found: printers need driverless (eSCL / AirPrint) scanning")
+        return f"Put the page on {scanners[0]['name']}'s glass and press scan, or run: librehome scan"
     dev = _find_device(t, devices)
     if dev is None:
         raise ActionError("I don't know which appliance you mean")

@@ -16,6 +16,7 @@ import ipaddress
 import json
 import secrets
 import socket
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from importlib import resources
 from urllib.parse import parse_qs, unquote, urlparse
@@ -65,9 +66,11 @@ def make_handler(reg: Registry, token: str, extra_hosts=()):
         def _authorized(self) -> bool:
             return secrets.compare_digest(self.headers.get("X-Token", ""), token)
 
-        def _send(self, code: int, body, ctype="application/json"):
+        def _send(self, code: int, body, ctype="application/json", headers=None):
             raw = body if isinstance(body, bytes) else json.dumps(body).encode()
             self.send_response(code)
+            for key, value in (headers or {}).items():
+                self.send_header(key, value)
             self.send_header("Content-Type", ctype)
             self.send_header("Content-Length", str(len(raw)))
             self.send_header("Cache-Control", "no-store")
@@ -119,6 +122,13 @@ def make_handler(reg: Registry, token: str, extra_hosts=()):
                         raise ActionError("file missing or larger than 100 MB")
                     name = (query.get("name") or ["document"])[0][:200]
                     return self._send(200, reg.print_file(path[len("/api/print/"):], name, self.rfile.read(n)))
+                if path.startswith("/api/scan/") and method == "POST":
+                    opts = self._json_body()
+                    color = str(opts.get("color", "color")) != "grey"
+                    jpeg = reg.scan(path[len("/api/scan/"):], opts.get("dpi"), color)
+                    name = time.strftime("scan-%Y%m%d-%H%M%S.jpg")
+                    return self._send(200, jpeg, "image/jpeg",
+                                      {"Content-Disposition": f'attachment; filename="{name}"'})
                 if path.startswith("/api/act/") and method == "POST":
                     device_id, _, action = path[len("/api/act/"):].rpartition("/")
                     return self._send(200, reg.act(device_id, action, self._json_body()))

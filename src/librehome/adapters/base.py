@@ -26,3 +26,7 @@ class Adapter:
 
     def print_file(self, device_id: str, filename: str, data: bytes) -> dict:
         raise ActionError("this device cannot print")
+
+    def scan(self, device_id: str, dpi: int | None = None, color: bool = True) -> bytes:
+        """Scan one page and return it as JPEG."""
+        raise ActionError("this device cannot scan")

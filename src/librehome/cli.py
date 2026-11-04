@@ -6,6 +6,7 @@ import json
 import socket
 import sys
 import threading
+import time
 import webbrowser
 
 from . import __version__, config, jarvis
@@ -25,6 +26,31 @@ def lan_ip() -> str:
         s.close()
 
 
+def _scan(reg: Registry, args) -> int:
+    deadline = time.monotonic() + 40  # scanners are looked for in the background
+    while True:
+        printers = [d for d in reg.devices() if d["kind"] == "printer" and d["online"]]
+        target = args.printer or next(
+            (d["id"] for d in printers if any(a["name"] == "scan" for a in d["actions"])), None)
+        if target:
+            try:
+                jpeg = reg.scan(target, args.dpi, not args.grey)
+                break
+            except ActionError as exc:
+                if "still looking" not in str(exc) or time.monotonic() > deadline:
+                    print(f"librehome: {exc}", file=sys.stderr)
+                    return 1
+        elif not printers or time.monotonic() > deadline:
+            print("librehome: no driverless (eSCL / AirPrint) scanner found", file=sys.stderr)
+            return 1
+        time.sleep(1)
+    out = args.output or time.strftime("scan-%Y%m%d-%H%M%S.jpg")
+    with open(out, "wb") as fh:
+        fh.write(jpeg)
+    print(f"Scanned to {out}")
+    return 0
+
+
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(prog="librehome", description="Jarvis-style hub for your home appliances")
     p.add_argument("--version", action="version", version=__version__)
@@ -36,6 +62,11 @@ def main(argv=None) -> int:
     sub.add_parser("devices", help="list devices as JSON")
     c = sub.add_parser("say", help='talk to Jarvis, e.g. librehome say "start the dishwasher"')
     c.add_argument("text", nargs="+")
+    sc = sub.add_parser("scan", help="scan a page from a printer's scanner to a JPEG file")
+    sc.add_argument("--printer", help="device id, e.g. printers/hp-envy-6000 (default: the first scanner)")
+    sc.add_argument("--dpi", type=int, help="resolution (default: 300 if the scanner offers it)")
+    sc.add_argument("--grey", action="store_true", help="greyscale instead of colour")
+    sc.add_argument("-o", "--output", help="file to write (default: scan-<date>-<time>.jpg)")
     sub.add_parser("config", help="print the config path and phone pairing URL")
     args = p.parse_args(argv)
 
@@ -51,6 +82,8 @@ def main(argv=None) -> int:
         except ActionError as exc:
             print(f"Jarvis: {exc}", file=sys.stderr)
             return 1
+    if args.cmd == "scan":
+        return _scan(reg, args)
     if args.cmd == "config":
         print(f"config file: {config.config_path()}")
         print(f"phone URL:   http://{lan_ip()}:8484/?token={cfg['token']}")

@@ -9,7 +9,7 @@
             "desktop": "librehome.desktop"
         }
     },
-    "version": "0.1.0",
+    "version": "0.2.0",
     "maintainer": "juujbyg <147175691+juujbyg@users.noreply.github.com>",
     "framework": "$ENV{CLICK_FRAMEWORK}"
 }

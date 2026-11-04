@@ -39,3 +39,7 @@ class Registry:
     def print_file(self, full_id: str, filename: str, data: bytes) -> dict:
         ad, local = self._split(full_id)
         return ad.print_file(local, filename, data)
+
+    def scan(self, full_id: str, dpi: int | None = None, color: bool = True) -> bytes:
+        ad, local = self._split(full_id)
+        return ad.scan(local, dpi, color)

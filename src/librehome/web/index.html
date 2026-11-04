@@ -30,6 +30,7 @@ button:disabled{opacity:.5}
 select,input[type=number]{padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--bg);color:var(--fg);font-size:15px;width:100%}
 label{font-size:13px;color:var(--dim);display:block;margin-top:6px}
 .ink{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--dim);margin-top:4px}.ink span{width:110px}.bar{flex:1;height:6px;border-radius:3px;background:var(--line);overflow:hidden}.bar i{display:block;height:100%;background:var(--accent)}.ink.low i{background:var(--bad)}.warn{color:var(--bad)}
+.scan{margin-top:10px}.scan img{display:block;max-width:100%;max-height:260px;border-radius:8px;border:1px solid var(--line);background:#fff}.scan a{display:inline-block;margin-top:6px;color:var(--accent)}
 .empty{color:var(--dim);padding:24px;text-align:center}
 </style>
 </head>
@@ -43,6 +44,8 @@ label{font-size:13px;color:var(--dim);display:block;margin-top:6px}
 </main>
 <script>
 const qs = new URLSearchParams(location.search);
+const chosen = {}, scans = {}, scanning = {};  // survive the 5-second refresh
+let lastDevs = [];
 const embedded = document.querySelector('meta[name=lh-token]').content;
 let token = qs.get('token') || (embedded !== '__TOKEN__' ? embedded : '') || (()=>{try{return localStorage.getItem('lh_token')}catch(e){return ''}})() || '';
 if (qs.get('token')) { try{localStorage.setItem('lh_token', token)}catch(e){} history.replaceState(null,'',location.pathname); }
@@ -84,10 +87,13 @@ function card(d) {
     if (a.name === 'service') continue;
     for (const [pn, spec] of Object.entries(a.params || {})) {
       if (inputs[pn]) continue;
-      const lab = document.createElement('label'); lab.textContent = pn.replace(/_c$/, ' (°C)').replace(/_/g, ' ');
+      const lab = document.createElement('label'); lab.textContent = pn === 'dpi' ? 'resolution (dpi)' : pn.replace(/_c$/, ' (°C)').replace(/_/g, ' ');
       let inp;
-      if (spec.type === 'choice') { inp = document.createElement('select'); spec.choices.forEach(c => inp.add(new Option(c, c))); }
+      if (spec.type === 'choice') { inp = document.createElement('select'); spec.choices.forEach(c => inp.add(new Option(c, c))); if (spec.default) inp.value = spec.default; }
       else { inp = document.createElement('input'); inp.type = 'number'; if (spec.min) inp.min = spec.min; if (spec.max) inp.max = spec.max; inp.placeholder = spec.min ? `${spec.min}–${spec.max}` : ''; }
+      const key = d.id + '|' + pn;
+      if (chosen[key] !== undefined) inp.value = chosen[key];
+      inp.onchange = () => { chosen[key] = inp.value; };
       inputs[pn] = inp; lab.append(inp); el.append(lab);
     }
   }
@@ -95,10 +101,21 @@ function card(d) {
   for (const a of d.actions) {
     if (a.name === 'service') continue;
     const b = document.createElement('button'); b.textContent = a.name.replace('_', ' ');
-    if (a.name === 'start') b.className = 'primary';
-    b.onclick = async () => {
+    if (a.name === 'start' || a.name === 'scan') b.className = 'primary';
+    const collect = () => {
       const params = {};
       for (const pn of Object.keys(a.params || {})) if (inputs[pn] && inputs[pn].value !== '') params[pn] = inputs[pn].type === 'number' ? Number(inputs[pn].value) : inputs[pn].value;
+      return params;
+    };
+    if (a.name === 'scan') {
+      b.textContent = scanning[d.id] ? 'scanning…' : 'scan';
+      b.disabled = !!scanning[d.id];
+      b.onclick = () => scan(d, collect());
+      row.append(b);
+      continue;
+    }
+    b.onclick = async () => {
+      const params = collect();
       b.disabled = true;
       try { await api('/api/act/' + d.id + '/' + a.name, {method:'POST', body: JSON.stringify(params)}); say(`${d.name}: ${a.name} ok`); }
       catch (e) { say(e.message, true); }
@@ -118,15 +135,37 @@ function card(d) {
     row.append(b, f);
   }
   el.append(row);
+  if (scans[d.id]) {
+    const box = document.createElement('div'); box.className = 'scan';
+    const img = document.createElement('img'); img.src = scans[d.id].url; img.alt = 'Last scan';
+    const a = document.createElement('a'); a.href = scans[d.id].url; a.download = scans[d.id].name; a.textContent = 'Save ' + scans[d.id].name;
+    box.append(img, a); el.append(box);
+  }
   return el;
 }
 
+async function scan(d, params) {
+  scanning[d.id] = true; say(`Scanning on ${d.name}…`); refresh(true);
+  try {
+    const r = await fetch('/api/scan/' + d.id, {method: 'POST', body: JSON.stringify(params),
+      headers: {'X-Token': token, 'Content-Type': 'application/json'}});
+    if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText);
+    const name = (r.headers.get('Content-Disposition') || '').match(/filename="([^"]+)"/)?.[1] || 'scan.jpg';
+    if (scans[d.id]) URL.revokeObjectURL(scans[d.id].url);
+    scans[d.id] = {url: URL.createObjectURL(await r.blob()), name};
+    const a = Object.assign(document.createElement('a'), {href: scans[d.id].url, download: name});
+    document.body.append(a); a.click(); a.remove();
+    say(`Scanned ${name}`);
+  } catch (e) { say('Scan: ' + e.message, true); }
+  scanning[d.id] = false; refresh(true);
+}
+
 let busy = false;
-async function refresh() {
-  if (busy || document.activeElement?.closest('.card')?.querySelector('select:focus,input:focus')) return;
+async function refresh(force) {
+  if (busy || (!force && document.activeElement?.matches?.('.card select, .card input'))) return;
   busy = true;
   try {
-    const devs = await api('/api/devices');
+    const devs = lastDevs = await api('/api/devices');
     $('conn').textContent = ''; const g = $('grid'); g.replaceChildren(...devs.map(card));
     if (!devs.length) g.innerHTML = '<div class="empty">No devices yet. Edit the config file to add some.</div>';
   } catch (e) { $('conn').textContent = '⚠ ' + e.message; }
@@ -135,6 +174,8 @@ async function refresh() {
 
 $('say').onsubmit = async e => {
   e.preventDefault(); const text = $('text').value.trim(); if (!text) return;
+  const scanner = /\bscan/i.test(text) && lastDevs.find(d => d.actions.some(a => a.name === 'scan'));
+  if (scanner) { $('text').value = ''; return scan(scanner, {}); }
   try { say((await api('/api/command', {method:'POST', body: JSON.stringify({text})})).reply); $('text').value = ''; }
   catch (err) { say(err.message, true); }
   refresh();

@@ -10,6 +10,8 @@ IPP Everywhere / AirPrint printers, found automatically with mDNS. Same code on 
 ```
 Use `printers` for networks that block mDNS. Optional keys per printer: `port` (631), `path` (`/ipp/print`), `secure` (true).
 
+**Scanning.** Each online printer's address is checked once, in the background, for an eSCL (AirPrint) scanner; if one answers, the printer gets a *scan* button (resolution, colour or grey; flatbed, or the feeder when there is no flatbed). Scans come back as JPEG. To skip the search, pin the scanner: `"escl": {"port": 443, "secure": true}`.
+
 ## `cups`: system print queues
 Queues already set up on the computer (CUPS on Linux/macOS, Windows printers). Useful for USB printers.
 ```json
