@@ -30,13 +30,19 @@ jobs:
         run: |
           export PYTHONPATH=src LIBREHOME_CONFIG="$RUNNER_TEMP/librehome.json"
           python -m librehome serve --no-browser --port 8484 &
-          for i in $(seq 1 20); do curl -fs http://127.0.0.1:8484/api/devices && break; sleep 1; done
-          curl -fs -X POST http://127.0.0.1:8484/api/command -d '{"text":"start the dishwasher on eco"}' | grep -q Started
+          for i in $(seq 1 20); do [ -s "$LIBREHOME_CONFIG" ] && curl -s -o /dev/null http://127.0.0.1:8484/ && break; sleep 1; done
+          token=$(python -c "import json,os; print(json.load(open(os.environ['LIBREHOME_CONFIG']))['token'])")
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8484/api/devices)" = 401
+          curl -fs -H "X-Token: $token" http://127.0.0.1:8484/api/devices
+          curl -fs -X POST -H "X-Token: $token" -H "Content-Type: application/json" \
+            -d '{"text":"start the dishwasher on eco"}' http://127.0.0.1:8484/api/command | grep -q Started
 
   phone:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # Clickable prefers podman when installed, and rootless podman can't unpack its image here.
+      - run: sudo apt-get remove -y podman
       - run: pip install clickable-ut
       - run: cd ubuntutouch && clickable build
       - uses: actions/upload-artifact@v4

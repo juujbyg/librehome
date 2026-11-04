@@ -3,6 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="lh-token" content="__TOKEN__">
 <title>LibreHome</title>
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22%3E%3Ctext y=%22.9em%22 font-size=%2290%22%3E🏠%3C/text%3E%3C/svg%3E">
 <style>
@@ -42,12 +43,14 @@ label{font-size:13px;color:var(--dim);display:block;margin-top:6px}
 </main>
 <script>
 const qs = new URLSearchParams(location.search);
-let token = qs.get('token') || (()=>{try{return localStorage.getItem('lh_token')}catch(e){return ''}})() || '';
+const embedded = document.querySelector('meta[name=lh-token]').content;
+let token = qs.get('token') || (embedded !== '__TOKEN__' ? embedded : '') || (()=>{try{return localStorage.getItem('lh_token')}catch(e){return ''}})() || '';
 if (qs.get('token')) { try{localStorage.setItem('lh_token', token)}catch(e){} history.replaceState(null,'',location.pathname); }
 const $ = id => document.getElementById(id);
 
 async function api(path, opts = {}) {
-  const r = await fetch(path, {...opts, headers: {'X-Token': token, ...(opts.headers||{})}});
+  const json = typeof opts.body === 'string' ? {'Content-Type': 'application/json'} : {};
+  const r = await fetch(path, {...opts, headers: {'X-Token': token, ...json, ...(opts.headers||{})}});
   const body = await r.json().catch(() => ({}));
   if (!r.ok) throw new Error(body.error || r.statusText);
   return body;
@@ -58,8 +61,9 @@ function card(d) {
   const el = document.createElement('div'); el.className = 'card';
   const s = d.state || {};
   const status = !d.online ? 'offline' : s.error ? s.error : s.remaining_s ? `${s.program} · ${Math.ceil(s.remaining_s/60)} min left` : (s.status || 'ok');
-  const cls = !d.online ? 'off' : (s.status || '');
-  el.innerHTML = `<h2></h2><div class="kind"></div><div class="status ${cls}"></div>`;
+  const cls = !d.online ? 'off' : String(s.status || '').replace(/[^a-z_-]/g, '');
+  el.innerHTML = '<h2></h2><div class="kind"></div><div class="status"></div>';
+  if (cls) el.querySelector('.status').classList.add(cls);
   el.querySelector('h2').textContent = d.name;
   el.querySelector('.kind').textContent = d.kind.replace(/_/g, ' ');
   el.querySelector('.status').textContent = status;
@@ -106,7 +110,7 @@ function card(d) {
     const f = document.createElement('input'); f.type = 'file'; f.hidden = true;
     f.onchange = async () => {
       if (!f.files[0]) return;
-      try { await api('/api/print/' + d.id + '?name=' + encodeURIComponent(f.files[0].name), {method:'POST', body: f.files[0]}); say(`Sent ${f.files[0].name} to ${d.name}`); }
+      try { await api('/api/print/' + d.id + '?name=' + encodeURIComponent(f.files[0].name), {method:'POST', body: f.files[0], headers: {'Content-Type': 'application/octet-stream'}}); say(`Sent ${f.files[0].name} to ${d.name}`); }
       catch (e) { say(e.message, true); }
       f.value = ''; refresh();
     };

@@ -14,9 +14,10 @@ from .base import ActionError, Adapter
 WIN = sys.platform == "win32"
 
 
-def _run(cmd: list[str], timeout: int = 20) -> str:
+def _run(cmd: list[str], timeout: int = 20, env: dict | None = None) -> str:
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout)
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=timeout,
+                           env={**os.environ, **env} if env else None)
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise ActionError(f"{cmd[0]} failed: {exc}") from None
     if r.returncode != 0:
@@ -60,7 +61,14 @@ class CupsAdapter(Adapter):
             return []
         return [line.split()[0] for line in out.splitlines() if line.strip()]
 
+    def _known(self, device_id: str) -> str:
+        """Only ever pass a queue name the system itself reported to a command."""
+        if device_id not in {d["id"] for d in self.devices()}:
+            raise ActionError(f"unknown printer {device_id!r}")
+        return device_id
+
     def act(self, device_id, action, params):
+        device_id = self._known(device_id)
         if action == "cancel_all":
             if WIN:
                 raise ActionError("cancel_all is not supported on Windows yet")
@@ -74,15 +82,19 @@ class CupsAdapter(Adapter):
     def print_file(self, device_id, filename, data):
         if not data:
             raise ActionError("empty file")
-        suffix = os.path.splitext(os.path.basename(filename))[1][:10]
+        device_id = self._known(device_id)
+        suffix = re.sub(r"[^A-Za-z0-9.]", "", os.path.splitext(os.path.basename(filename))[1])[:10]
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as tmp:
             tmp.write(data)
         try:
             if WIN:
-                ps = f"Start-Process -FilePath '{tmp.name}' -Verb PrintTo -ArgumentList '\"{device_id}\"' -Wait"
-                _run(["powershell", "-NoProfile", "-Command", ps], timeout=120)
+                # Values travel as environment variables, never inside the script text.
+                ps = ("Start-Process -FilePath $env:LH_FILE -Verb PrintTo "
+                      "-ArgumentList ('\"' + $env:LH_PRINTER + '\"') -Wait")
+                _run(["powershell", "-NoProfile", "-Command", ps], timeout=120,
+                     env={"LH_FILE": tmp.name, "LH_PRINTER": device_id})
                 return {"submitted": True}
-            out = _run(["lp", "-d", device_id, "-t", os.path.basename(filename), tmp.name])
+            out = _run(["lp", "-d", device_id, "-t", os.path.basename(filename)[:100], "--", tmp.name])
             return {"submitted": True, "detail": out.strip()}
         finally:
             # CUPS has copied the file by the time lp returns.

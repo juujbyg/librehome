@@ -58,7 +58,7 @@ def main(argv=None) -> int:
 
     host = getattr(args, "host", "0.0.0.0")
     port = getattr(args, "port", 8484)
-    httpd = serve(reg, cfg["token"], host, port)
+    httpd = serve(reg, cfg["token"], host, port, cfg.get("allowed_hosts", []))
     print(f"LibreHome {__version__} running")
     print(f"  this computer: http://127.0.0.1:{port}/")
     print(f"  phone / other: http://{lan_ip()}:{port}/?token={cfg['token']}")

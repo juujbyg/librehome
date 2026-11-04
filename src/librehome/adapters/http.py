@@ -11,15 +11,19 @@ from __future__ import annotations
 
 import json
 import urllib.error
+import urllib.parse
 import urllib.request
 
 from .base import ActionError, Adapter
 
 
-def _fill(value, params):
+def _fill(value, params, url=False):
+    """Fill {param} placeholders. In URLs every value is percent-encoded, so a parameter can
+    never change the host, path or query structure the config file set."""
     if isinstance(value, str):
         for k, v in params.items():
-            value = value.replace("{" + k + "}", str(v))
+            text = str(v)
+            value = value.replace("{" + k + "}", urllib.parse.quote(text, safe="") if url else text)
         return value
     if isinstance(value, dict):
         return {k: _fill(v, params) for k, v in value.items()}
@@ -56,5 +60,5 @@ class HttpAdapter(Adapter):
         spec = self.entry.get("actions", {}).get(action)
         if spec is None:
             raise ActionError(f"{self.name} has no action {action!r}")
-        self._req(spec.get("method", "POST"), _fill(spec["url"], params), _fill(spec.get("body"), params))
+        self._req(spec.get("method", "POST"), _fill(spec["url"], params, url=True), _fill(spec.get("body"), params))
         return self.devices()[0]
