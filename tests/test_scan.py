@@ -67,9 +67,17 @@ def test_printer_without_scanner():
                            "secure": False, "escl": {"port": 9, "secure": False}}]}
     r = Registry({"adapters": [entry]})
     r.devices()
-    time.sleep(0.5)
-    with pytest.raises(ActionError, match="no driverless"):
-        r.scan(ID)
+    for _ in range(100):  # a refused connection takes ~2 s on Windows
+        try:
+            r.scan(ID)
+        except ActionError as exc:
+            if "still looking" in str(exc):
+                time.sleep(0.1)
+                continue
+            assert "no driverless" in str(exc)
+            break
+    else:
+        raise AssertionError("scanner check never finished")
     printer.shutdown()
 
 
@@ -88,3 +96,31 @@ def test_scan_over_http_api(reg):
             assert resp.read() == JPEG
     finally:
         httpd.shutdown()
+
+
+def test_oversized_scanner_reply_is_refused():
+    import http.server
+
+    from librehome.protocols import escl
+
+    class Flood(http.server.BaseHTTPRequestHandler):
+        def log_message(self, *args):
+            pass
+
+        def do_GET(self):
+            self.send_response(200)
+            self.end_headers()
+            try:
+                for _ in range(40):  # 2.5 MB, over the 1 MB cap for capabilities
+                    self.wfile.write(b"x" * 65536)
+            except OSError:
+                pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Flood)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        scanner = {"host": "127.0.0.1", "port": server.server_address[1], "secure": False}
+        with pytest.raises(escl.ScanError, match="more data"):
+            escl._request(scanner, "GET", "/eSCL/ScannerCapabilities")
+    finally:
+        server.shutdown()

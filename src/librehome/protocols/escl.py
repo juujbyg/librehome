@@ -14,6 +14,9 @@ PREFIXES = ["/eSCL", "/escl"]
 PROBE_TIMEOUT = 4
 REQUEST_TIMEOUT = 30
 SCAN_TIMEOUT = 180
+# A device on the network decides how much it sends; never hold more than this in memory.
+MAX_REPLY = 1024 * 1024            # capabilities, job replies
+MAX_PAGE = 100 * 1024 * 1024       # one scanned page
 BUSY = 503
 COMMON_DPIS = (75, 150, 300, 600, 1200)
 NOTHING_ANSWERED = "No driverless scanner answered at this address"
@@ -48,7 +51,7 @@ def _old_printer_tls():
     return context
 
 
-def _request(scanner, method, path, body=None, timeout=REQUEST_TIMEOUT):
+def _request(scanner, method, path, body=None, timeout=REQUEST_TIMEOUT, limit=MAX_REPLY, deadline=None):
     host, port, secure = scanner["host"], int(scanner["port"]), scanner["secure"]
     if secure:
         conn = http.client.HTTPSConnection(host, port, timeout=timeout, context=_old_printer_tls())
@@ -58,9 +61,23 @@ def _request(scanner, method, path, body=None, timeout=REQUEST_TIMEOUT):
         headers = {"Content-Type": "text/xml"} if body else {}
         conn.request(method, path, body, headers)
         response = conn.getresponse()
-        return response.status, response.getheader("Location"), response.read()
+        return response.status, response.getheader("Location"), _read_capped(response, limit, deadline)
     finally:
         conn.close()
+
+
+def _read_capped(response, limit, deadline=None):
+    chunks, size = [], 0
+    while True:
+        if deadline is not None and time.monotonic() > deadline:
+            raise ScanError("The scanner took too long to send the page")
+        chunk = response.read(65536)
+        if not chunk:
+            return b"".join(chunks)
+        size += len(chunk)
+        if size > limit:
+            raise ScanError("The scanner sent more data than a page can be")
+        chunks.append(chunk)
 
 
 def _numbers(tag, text):
@@ -149,7 +166,8 @@ def scan_page(scanner, dpi, color):
     job = _start(scanner, settings)
     deadline = time.monotonic() + SCAN_TIMEOUT
     while True:
-        status, _, body = _request(scanner, "GET", job + "/NextDocument", timeout=SCAN_TIMEOUT)
+        status, _, body = _request(scanner, "GET", job + "/NextDocument", timeout=SCAN_TIMEOUT,
+                                   limit=MAX_PAGE, deadline=deadline)
         if status == 200:
             break
         if status != BUSY or time.monotonic() > deadline:

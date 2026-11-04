@@ -18,6 +18,7 @@ STATUS_MESSAGES = {
 STATUS_BUSY = 0x0507
 # A printer that has gone should fail fast, however long a send may need once connected.
 CONNECT_TIMEOUT = 15
+MAX_RESPONSE = 16 * 1024 * 1024  # attribute replies are kilobytes; never trust a device's length
 
 TAG_OPERATION = 0x01
 TAG_JOB = 0x02
@@ -258,7 +259,9 @@ class Printer:
                 raise IppError("Cancelled")
             conn.request("POST", self.path, body, {"Content-Type": "application/ipp"})
             response = conn.getresponse()
-            data = response.read()
+            data = response.read(MAX_RESPONSE + 1)
+            if len(data) > MAX_RESPONSE:
+                raise IppError("Printer sent an oversized response")
             if response.status != 200:
                 raise IppError("Printer returned HTTP %d" % response.status)
             return data
